@@ -1,0 +1,14 @@
+#!/bin/sh
+set -o errexit -o nounset -o pipefail
+
+STORAGE_PATH=/prometheus
+[ -d /mnt/mesos/sandbox/prometheus ] && STORAGE_PATH=/mnt/mesos/sandbox/prometheus
+mkdir -p $STORAGE_PATH/alertmanager
+
+# /bin/mkalertmanagercfg "/etc/prometheus/alertmanager.yml"
+touch /etc/prometheus/alertmanager.yml
+
+/bin/alertmanager \
+  -config.file "/etc/prometheus/alertmanager.yml" \
+  -storage.path "$STORAGE_PATH/alertmanager" \
+  "$@"

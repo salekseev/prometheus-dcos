@@ -3,10 +3,8 @@ set -o errexit -o nounset -o pipefail
 
 STORAGE_PATH=/prometheus
 [ -d /mnt/mesos/sandbox/prometheus ] && STORAGE_PATH=/mnt/mesos/sandbox/prometheus
-mkdir -p $STORAGE_PATH/server $STORAGE_PATH/alertmanager
+mkdir -p $STORAGE_PATH/server
 rm -f $STORAGE_PATH/server/lock
-
-/bin/mkalertmanagercfg "/etc/prometheus/alertmanager.yml"
 
 if [ -n "${RULES-}" ]; then
   echo "Writing ENV set RULES to /etc/prometheus/prometheus.rules"
@@ -20,12 +18,39 @@ if [ -n "${CADVISOR_SRV-}" ]; then
   /bin/srv2file_sd -srv "$CADVISOR_SRV" -out "/etc/prometheus/cadvisor.json" -loop -time ${SRV_REFRESH_INTERVAL:-60} &
 fi
 
-/bin/alertmanager -config.file "/etc/prometheus/alertmanager.yml" \
-                  -storage.path "$STORAGE_PATH/alertmanager" &
+if [ -n "${GIT_SD_URL-}" ]; then
+
+  mkdir -p /root/.ssh
+  echo "Host *" > /root/.ssh/config
+  echo "  StrictHostKeyChecking no" >> /root/.ssh/config
+  echo "  User git" >> /root/.ssh/config
+  echo "  UserKnownHostsFile /dev/null" >> /root/.ssh/config
+  echo "  IdentityFile /root/.ssh/id_rsa" >> /root/.ssh/config
+  echo "  LogLevel FATAL" >> /root/.ssh/config
+  chmod 600 /root/.ssh/config
+
+  if [ -n "${GIT_SD_DEPLOY_KEY-}" ]; then
+    echo "${GIT_SD_DEPLOY_KEY-}" > /root/.ssh/id_rsa
+    chmod 600 /root/.ssh/id_rsa
+  fi
+
+  git clone $GIT_SD_URL /etc/prometheus/git
+  cd /etc/prometheus/git
+
+  if [ -n "${GIT_SD_REF-}" ]; then
+    cd /etc/prometheus/git
+    git checkout "${GIT_SD_REF-}"
+  fi
+
+  while sleep 30; do git pull; done &
+
+  cd -
+
+fi
 
 /bin/sed -i'' \
   -e "s#@ALERTMANAGER_SCHEME@#${ALERTMANAGER_SCHEME:-http}#" \
-  -e "s#@ALERTMANAGER_URL@#${ALERTMANAGER_URL:-localhost:9093}#" \
+  -e "s#@ALERTMANAGER_URL@#${ALERTMANAGER_URL:-prometheusalertmanager.marathon.l4lb.thisdcos.directory:9093}#" \
   /etc/prometheus/prometheus.yml
 
 /bin/prometheus \
